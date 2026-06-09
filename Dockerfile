@@ -1,43 +1,43 @@
-FROM node:20-alpine as build-deps
+FROM node:20-alpine AS build
+
 WORKDIR /usr/src/app
 
-# Copy package files
 COPY package*.json ./
 
-# Install dependencies without running prepare scripts
-RUN echo "Iniciando install..." && \
-    npm ci --ignore-scripts && \
-    echo "Install concluído."
+RUN npm ci --ignore-scripts
 
-# Copy source code
-COPY src/ ./src/
-COPY tsconfig.json ./
-COPY tsconfig.app.json ./
-COPY tsconfig.node.json ./
-COPY vite.config.ts ./
-COPY postcss.config.js ./
-COPY tailwind.config.js ./
-COPY index.html ./
-COPY components.json ./
-COPY public/ ./public/
+COPY . .
 
-# Build the application
-RUN echo "Iniciando build..." && \
-    npm run build && \
-    echo "Build concluído."
+RUN npm run build
 
 FROM nginx:alpine
 
-ENV PUBLIC_HTML=/usr/share/nginx/html
+RUN rm -f /etc/nginx/conf.d/default.conf
 
-RUN rm /etc/nginx/conf.d/default.conf
+RUN cat > /etc/nginx/conf.d/default.conf <<'EOF'
+server {
+    listen 80;
+    server_name _;
 
-COPY .docker/nginx.conf /etc/nginx/conf.d/
+    root /usr/share/nginx/html;
+    index index.html;
 
-COPY .docker/start.sh /
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
 
-COPY --from=build-deps /usr/src/app/dist ${PUBLIC_HTML}
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+        try_files $uri =404;
+    }
+}
+EOF
+
+COPY --from=build /usr/src/app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-ENTRYPOINT [ "/bin/sh", "/start.sh" ]
+CMD ["nginx", "-g", "daemon off;"]
